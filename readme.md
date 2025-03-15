@@ -1,5 +1,16 @@
 # PromptFusion: Intelligent Codebase Analysis
 
+## Primary Purpose
+
+PromptFusion is a specialized tool designed for deep exploration and rapid understanding of large codebases using Large Language Models (LLMs). The core purpose of this project is to significantly accelerate the process of analyzing large software projects consisting of numerous files, helping developers quickly find answers or identify issues in unfamiliar code.
+
+The tool is particularly valuable in the following scenarios:
+- Initial familiarization with a new codebase
+- Finding specific functionality implementations in a large project
+- Exploring relationships between components in a complex system
+- Identifying potential problems or bottlenecks in the architecture
+- Gaining detailed understanding of code behavior without manual analysis of each file
+
 ## About the Project
 
 PromptFusion is a tool for interacting with codebases using Large Language Models (LLMs). The project allows you to analyze, navigate, and get consultations about codebases using generative language models.
@@ -52,6 +63,8 @@ On first launch, you'll be prompted to specify the path to the project for analy
 - "How is function X implemented in file Y?"
 - "Find all places where class Z is used"
 - "Tell me about the interaction between modules A and B"
+- "What architectural issues exist in the project?"
+- "How is error handling implemented in the authentication module?"
 
 ## Project Architecture
 
