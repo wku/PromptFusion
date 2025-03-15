@@ -18,6 +18,70 @@ from utils import (
     input_yes_no, is_no, load_file_content, add_path_prefix,
     remove_path_prefix, trim_code, remove_comments
 )
+import re
+
+
+def fix_encoding(broken_text):
+    """
+    Исправляет битую кодировку кириллицы, работая с байтами напрямую.
+
+    Args:
+        broken_text: Строка с битой кодировкой
+
+    Returns:
+        Исправленная строка
+    """
+    # Получаем байты через UTF-8 с заменой
+    raw_bytes = broken_text.encode('utf-8', errors='replace')
+    print(f"Исходные байты: {raw_bytes.hex()}")
+
+    # Проверяем стандартный путь: Latin1 -> UTF-8
+    try:
+        temp_bytes = broken_text.encode('latin1', errors='replace')
+        result = temp_bytes.decode('utf-8', errors='ignore')
+        if any(1040 <= ord(c) <= 1103 for c in result):
+            print("Успешное преобразование: latin1-encoded UTF-8 -> UTF-8")
+            return result
+    except UnicodeError as e:
+        print(f"Ошибка при декодировании Latin1 -> UTF-8: {str(e)}")
+
+    # Упрощённый подход: собираем только валидные UTF-8 последовательности
+    corrected_bytes = bytearray()
+    i = 0
+    while i < len(raw_bytes):
+        # Пропускаем символ замены (efbfbd)
+        if i + 2 < len(raw_bytes) and raw_bytes[i:i+3] == b'\xef\xbf\xbd':
+            i += 3
+            continue
+        # Обрабатываем c3xx или c2xx как Latin1-интерпретированный UTF-8
+        if i + 1 < len(raw_bytes) and raw_bytes[i] in (0xc3, 0xc2):
+            byte2 = raw_bytes[i + 1]
+            if 0xa0 <= byte2 <= 0xbf:  # Кириллица в UTF-8 начинается с d0 или d1
+                corrected_bytes.extend(bytes([0xd0 + ((byte2 - 0xa0) // 4), 0x80 + (byte2 & 0x3f)]))
+            elif 0x80 <= byte2 <= 0x9f:  # Дополнительные символы
+                corrected_bytes.extend(bytes([0xd0, byte2]))
+            else:
+                corrected_bytes.append(raw_bytes[i])
+            i += 2
+        else:
+            corrected_bytes.append(raw_bytes[i])
+            i += 1
+
+    print(f"Скорректированные байты: {corrected_bytes.hex()}")
+
+    # Декодируем результат
+    try:
+        result = corrected_bytes.decode('utf-8', errors='ignore')
+        if any(1040 <= ord(c) <= 1103 for c in result):
+            print("Успешное восстановление через анализ байтов")
+            return result
+        else:
+            print("Результат не содержит кириллицу")
+    except UnicodeError as e:
+        print(f"Ошибка при декодировании скорректированных байтов: {str(e)}")
+
+    print("Не удалось исправить кодировку")
+    return broken_text
 
 
 class PromptTools:
@@ -93,7 +157,8 @@ class PromptTools:
 
     def process_user_message(self, message: str) -> Optional[Dict[str, Any]]:
         """
-        Проверяет сообщение пользователя на наличие вызовов функций и выполняет их.
+        Проверяет сообщение пользователя на наличие вызовов функций и выполняет их
+        с корректной обработкой кодировки.
 
         Args:
             message: Сообщение пользователя
@@ -101,6 +166,8 @@ class PromptTools:
         Returns:
             Optional[Dict[str, Any]]: Результат выполнения функции или None
         """
+        import re
+
         # Шаблоны для распознавания вызовов функций в тексте
         function_pattern = r'\[FUNCTION: (\w+)\((.*?)\)\]'
 
@@ -111,13 +178,18 @@ class PromptTools:
         # Берем только первое совпадение
         function_name, args_str = matches[0]
 
-        # Парсим аргументы
+        # Более надежный парсинг аргументов с учетом вложенных структур и экранированных кавычек
         args = {}
-        args_pattern = r'(\w+)=(?:"([^"]*?)"|\'([^\']*?)\'|(\d+\.\d+)|(\d+)|(\w+))'
+        # Используем улучшенный парсер для аргументов
+        # Обрабатываем одиночные и двойные кавычки, а также числовые и булевы значения
+        args_pattern = r'(\w+)=(?:\"((?:\\.|[^\"])*)\"|\'((?:\\.|[^\'])*?)\'|(\d+\.\d+)|(\d+)|(true|false))'
+
         for arg_match in re.findall (args_pattern, args_str):
             arg_name = arg_match[0]
+
             # Находим первое непустое значение среди возможных типов
-            arg_value = next ((v for v in arg_match[1:] if v), None)
+            arg_values = arg_match[1:]
+            arg_value = next ((v for v in arg_values if v), None)
 
             # Преобразуем значение к правильному типу
             if arg_value == "true":
@@ -128,6 +200,32 @@ class PromptTools:
                 arg_value = int (arg_value)
             elif arg_value and arg_value.replace ('.', '', 1).isdigit ():
                 arg_value = float (arg_value)
+
+            # Если это строка с экранированием, обрабатываем её с учетом unicode
+            if isinstance (arg_value, str) and ('\\' in arg_value or '\\u' in arg_value or '\\x' in arg_value):
+                try:
+                    # Прямой подход через codecs для разбора unicode escape-последовательностей
+                    import codecs
+                    arg_value = codecs.decode (arg_value, 'unicode_escape')
+                except Exception as e:
+                    print (f"Ошибка декодирования Unicode в аргументе: {e}")
+                    try:
+                        # Альтернативный метод - используем буфер для замены escape-последовательностей
+                        # Это безопаснее чем encode/decode
+                        import re
+
+                        # Заменяем \uXXXX последовательности на их символы
+                        def replace_unicode(match):
+                            hex_val = match.group (1)
+                            return chr (int (hex_val, 16))
+
+                        # Заменяем \n, \t и другие common escapes
+                        arg_value = arg_value.replace ('\\n', '\n').replace ('\\t', '\t').replace ('\\"', '"')
+                        # Заменяем \uXXXX последовательности
+                        arg_value = re.sub (r'\\u([0-9a-fA-F]{4})', replace_unicode, arg_value)
+                    except Exception as e2:
+                        print (f"Вторичная ошибка декодирования: {e2}")
+                        # Оставляем как есть если не получилось декодировать
 
             args[arg_name] = arg_value
 
@@ -146,6 +244,7 @@ class PromptTools:
             return self.update_file_func (args.get ("path", ""), args.get ("content", ""))
         else:
             return {"error": f"Неизвестная функция: {function_name}"}
+
 
     def get_file_func(self, path: str) -> Dict[str, Any]:
         """
@@ -330,7 +429,7 @@ class PromptTools:
 
     def update_file_func(self, path: str, content: str) -> Dict[str, Any]:
         """
-        Обновляет или создает файл.
+        Обновляет или создает файл с корректной обработкой кодировки.
 
         Args:
             path: Путь к файлу
@@ -360,10 +459,37 @@ class PromptTools:
                 'function': 'update_file'
             }
 
-        # Записываем файл
+        content = fix_encoding (content)
+        # Обработка и декодирование многострочных строк с экранированием
+
+        processed_content = content
+        print(f"Processed content: \n {processed_content} \n")
+
+        # Проверка, является ли content строкой с буквальным экранированием
+        if '\\n' in content or '\\u' in content or '\\x' in content:
+            try:
+                # Используем правильное декодирование строки для обработки экранированных последовательностей
+                # Включая unicode-escape для обработки \uXXXX последовательностей
+                processed_content = content.encode ('latin1').decode ('unicode_escape')
+            except Exception as e:
+                print (f"Предупреждение при декодировании unicode: {e}")
+                try:
+                    # Альтернативный метод с использованием eval
+                    processed_content = eval (f'"""{content}"""')
+                except Exception as e2:
+                    print (f"Предупреждение при использовании eval: {e2}")
+                    # Простой метод замены
+                    processed_content = content.replace ('\\n', '\n').replace ('\\t', '\t').replace ('\\"', '"')
+
+        # Записываем файл явно с UTF-8 кодировкой
         try:
+            # Проверка кодировки перед записью
+            print (f"Проверка кодировки перед записью: {type (processed_content)}")
+            print (f"Processed content 2 : \n {processed_content} \n")
+
+            # Явно конвертируем в UTF-8 при записи
             with open (full_path, 'w', encoding='utf-8') as file:
-                file.write (content)
+                file.write (processed_content)
 
             print (f'файл {path} обновлен')
 
@@ -393,6 +519,8 @@ class PromptTools:
                 'error': f'Ошибка при обновлении файла: {str (e)}',
                 'function': 'update_file'
             }
+
+
 
     def format_function_result(self, result: Dict[str, Any]) -> str:
         """
@@ -456,6 +584,7 @@ class PromptTools:
         # Для неизвестных функций
         return f"[RESULT: {function_name}]\n{json.dumps (result, indent=2)}\n[/RESULT]"
 
+
     def process_bot_response(self, response: str) -> str:
         """
         Обрабатывает ответ бота, заменяя вызовы функций на их результаты.
@@ -466,35 +595,37 @@ class PromptTools:
         Returns:
             str: Обработанный ответ с результатами функций
         """
-        # Шаблон для поиска вызовов функций
+        # Шаблон для поиска вызовов функций с более точным захватом аргументов
         function_pattern = r'\[FUNCTION: (\w+)\((.*?)\)\]'
 
         # Пока в ответе есть вызовы функций, обрабатываем их
-        while re.search (function_pattern, response):
+        while re.search(function_pattern, response):
             # Находим первый вызов функции
-            match = re.search (function_pattern, response)
+            match = re.search(function_pattern, response)
             if not match:
                 break
 
-            function_call = match.group (0)
-            function_name = match.group (1)
-            args_str = match.group (2)
+            function_call = match.group(0)
+            function_name = match.group(1)
+            args_str = match.group(2)
 
             # Создаем сообщение пользователя с вызовом функции
             function_message = f"{function_call}"
 
             # Выполняем функцию
-            result = self.process_user_message (function_message)
+            result = self.process_user_message(function_message)
 
             if result:
                 # Форматируем результат
-                formatted_result = self.format_function_result (result)
+                formatted_result = self.format_function_result(result)
 
                 # Заменяем вызов функции на результат
-                response = response.replace (function_call, formatted_result, 1)
+                response = response.replace(function_call, formatted_result, 1)
             else:
                 # Если функция не распознана, заменяем вызов на ошибку
                 error_result = f"[RESULT: error]\nНе удалось выполнить функцию: {function_name}\n[/RESULT]"
-                response = response.replace (function_call, error_result, 1)
+                response = response.replace(function_call, error_result, 1)
 
         return response
+
+
