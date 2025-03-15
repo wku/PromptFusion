@@ -1,8 +1,7 @@
 """
-Модуль моделей данных для CodebaseGPT
+Модуль моделей данных для PromptFusion
 
 Содержит классы, представляющие состояние приложения, проекта и файлов.
-Объединяет функциональность app_state.py, proj_state.py, proj_stat.py и file_node.py.
 """
 
 from typing import List, Dict, Optional, Any, Union

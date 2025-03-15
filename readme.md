@@ -1,120 +1,144 @@
-# Документация по промпт-инструментам для CodebaseGPT
+# PromptFusion: Intelligent Codebase Analysis
 
-## Обзор
-Это решение заменяет механизм инструментов API OpenAI на промпт-инжиниринг для работы с проектом через LLM. Основная проблема, которую оно решает — несовместимость OpenRouter API с механизмом функций OpenAI, что проявляется в отсутствии поля `usage` в ответе и приводит к ошибкам в работе приложения.
+## About the Project
 
-## Файлы и их назначение
+PromptFusion is a tool for interacting with codebases using Large Language Models (LLMs). The project allows you to analyze, navigate, and get consultations about codebases using generative language models.
 
-### 1. `prompt_tools.py`
-Основной модуль, реализующий инструменты через промпт-инжиниринг.
+### Key Features
 
-### 2. `improved_chat_session.py`
-Альтернативная реализация сессии чата, использующая промпт-инструменты.
+- Analysis of project structure and file descriptions
+- Semantic search across the codebase
+- Interactive AI chat for code discussions
+- Support for multiple programming languages
+- API cost optimization
 
-## Архитектура решения
+## Installation
 
-### Класс `PromptTools`
-Ключевой класс, который инкапсулирует всю логику работы с инструментами через промпты.
-
-#### Основные методы:
-- `get_tools_system_prompt()` — формирует инструкции для LLM по использованию функций
-- `enhance_system_prompt(original_prompt)` — добавляет инструкции к системному промпту
-- `process_user_message(message)` — обрабатывает сообщения пользователя с вызовами функций
-- `process_bot_response(response)` — обрабатывает ответы LLM, заменяя вызовы функций результатами
-
-#### Функциональные методы:
-- `get_file_func(path)` — загружает содержимое файла
-- `find_files_semantic_func(query, page)` — ищет файлы семантически
-- `find_in_files_func(query, is_case_sensitive, page)` — ищет текст в файлах
-- `update_file_func(path, content)` — обновляет или создает файл
-
-### Функция `start_chat_session`
-Основная функция из `improved_chat_session.py`, которая запускает интерактивный чат с LLM.
-
-## Принцип работы
-
-1. **Системный промпт:** 
-   - Стандартный системный промпт дополняется инструкциями по использованию функций
-   - Формат вызова функций: `[FUNCTION: имя_функции(параметр="значение")]`
-
-2. **Обработка сообщений пользователя:**
-   - Если пользователь напрямую вызывает функцию (например, для тестирования), 
-     она выполняется и результат выводится
-
-3. **Обработка ответов LLM:**
-   - Ответы LLM обрабатываются и вызовы функций заменяются их результатами
-   - LLM может вызывать функции, которые выполняются на стороне клиента
-   - Результаты оформляются в виде: `[RESULT: имя_функции]...результат...[/RESULT]`
-
-4. **Итеративная обработка:**
-   - Ответ обрабатывается в цикле, пока все вызовы функций не будут заменены результатами
-
-## Примеры форматов
-
-### Вызов функции:
-```
-[FUNCTION: get_file(path="./main.py")]
+1. Clone the repository
+```bash
+git clone https://github.com/wku/PromptFusion
+cd PromptFusion
 ```
 
-### Результат выполнения:
-```
-[RESULT: get_file]
-Файл: ./main.py
-Содержимое:
-```python
-def main():
-    print("Hello world")
-```
-[/RESULT]
+2. Install dependencies
+```bash
+pip install -r requirements.txt
 ```
 
-## Интеграция в проект
-
-### 1. Добавление файлов:
-- Скопируйте `prompt_tools.py` и `improved_chat_session.py` в корневую директорию проекта
-
-### 2. Изменение импортов в app.py:
-```python
-# Заменить
-from core import initialize_project, analyze_project_files, start_chat_session
-
-# На
-from core import initialize_project, analyze_project_files
-from improved_chat_session import start_chat_session
+3. Create a `.env` file in the project root
+```
+OPENROUTER_API_KEY=your_api_key_here
 ```
 
-### 3. Установка зависимостей:
+## Usage
+
+### Launch
+
+```bash
+python app.py
 ```
-pip install sentence-transformers scikit-learn numpy
-```
 
-## Преимущества подхода
+On first launch, you'll be prompted to specify the path to the project for analysis. The program will create an index of project files and their descriptions using LLM.
 
-1. **Надежность:** Не зависит от поддержки функций API на стороне провайдера
-2. **Прозрачность:** Вызовы функций и их результаты видны в истории чата
-3. **Расширяемость:** Легко добавлять новые функции без изменения API
-4. **Унифицированность:** Работает с любыми LLM, которые следуют инструкциям
+### Basic Chat Commands
 
-## Ограничения
+- Ask questions about the structure and functionality of the project
+- `/clear` - clear message history
+- `/exit` - exit the chat
 
-1. Зависит от способности LLM корректно следовать формату
-2. Увеличивает размер промптов за счет включения результатов функций
-3. Не поддерживает параллельное выполнение функций
+### Example Questions
 
-## Диагностика проблем
+- "Explain the main structure of the project"
+- "How is function X implemented in file Y?"
+- "Find all places where class Z is used"
+- "Tell me about the interaction between modules A and B"
 
-Если LLM неправильно форматирует вызовы функций:
-1. Убедитесь, что системный промпт содержит четкие инструкции
-2. Рассмотрите добавление примеров использования функций
-3. Используйте более строгую температуру (0-0.2) для более предсказуемых результатов
+## Project Architecture
 
-Для отладки можно добавить дополнительные выводы в методы `process_user_message` и `process_bot_response` класса `PromptTools`.
+### Key Modules
 
-## Заключение
+- **analyzers.py** - Code structure analyzers for various languages
+- **app.py** - Application entry point
+- **config.py** - Configuration management
+- **core.py** - Core application logic
+- **improved_chat_session.py** - Chat implementation with prompt tools
+- **models.py** - Data models
+- **prompt_tools.py** - Prompt tools for working with LLM
 
-Данное решение обеспечивает стабильную работу с OpenRouter API, обходя проблемы совместимости с механизмом функций OpenAI. 
-Такой подход делает взаимодействие с кодовой базой более надежным и универсальным, позволяя использовать различные API провайдеров 
-без изменения основной функциональности.
+### Supported Programming Languages
 
+- Python
+- JavaScript/TypeScript
+- Java
+- C/C++
+- Go
+- Rust
+- Solidity
 
+## Prompt Tools
 
+The project uses an innovative approach to interacting with LLMs through prompt engineering instead of standard API functions. This ensures compatibility with various LLM providers.
+
+### How Prompt Tools Work
+
+1. Instructions for using functions are added to the system prompt
+2. LLM can call functions in the format `[FUNCTION: function_name(parameter="value")]`
+3. Function calls are processed and replaced with results in the format `[RESULT: function_name]...result...[/RESULT]`
+
+### Available Functions
+
+- `get_file(path)` - Loads file content
+- `find_files_semantic(query, page)` - Searches files using semantic search
+- `find_in_files(query, is_case_sensitive, page)` - Searches for text in files
+- `update_file(path, content)` - Updates or creates a file
+
+## Analysis Modes
+
+The project supports various file description modes:
+
+- **MODE_DESC** - Full descriptions (standard mode)
+- **MODE_DESC_NO** - No descriptions
+- **MODE_DESC_2** - Brief descriptions
+
+## Cost Optimization
+
+The system automatically tracks:
+- Number of tokens in requests/responses
+- Cost of API requests
+- File sizes
+
+It warns about large files and projects that may lead to high costs.
+
+## Project Advantages
+
+- **Deep code analysis** - specialized parsers for different languages
+- **Flexible settings** - control over file inclusion/exclusion
+- **Semantic search** - using vector embeddings
+- **Modular architecture** - clear separation of components
+- **Local analysis** - minimizing data sent to LLM
+- **Incremental updates** - updating only modified files
+- **Universal compatibility** - works with various LLM APIs
+
+## Limitations and Diagnostics
+
+### Known Limitations
+- Depends on the LLM's ability to correctly follow the format
+- Large projects may require significant resources
+- Increased prompt size due to inclusion of function results
+
+### Diagnostic Tips
+If the LLM incorrectly formats function calls:
+1. Check the system prompt for clear instructions
+2. Use a lower temperature (0-0.2)
+3. Add examples of function usage
+
+## Contributing to the Project
+
+We welcome contributions to the project! If you have suggestions for improvement or have found a bug:
+
+1. Create an issue
+2. Submit a pull request with proposed changes
+
+## License
+
+The project is distributed under the MIT license

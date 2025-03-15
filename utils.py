@@ -1,15 +1,7 @@
 """
-Модуль утилит для CodebaseGPT
+Модуль утилит для PromptFusion
 
-Объединяет вспомогательные функции из разных модулей:
-- utils.py
-- init_utils.py
-- input_utils.py
-- code_utils.py
-- token_utils.py
-- cost_utils.py
-- pretty_bytes.py
-- is_text_or_bin.py
+
 """
 
 import os
@@ -48,7 +40,7 @@ def _lazy_import_models():
 # Настройка логирования
 def setup_logging() -> logging.Logger:
     """Настраивает и возвращает логгер приложения"""
-    logger = logging.getLogger ('codebasegpt')
+    logger = logging.getLogger ('PromptFusion')
     logger.setLevel (logging.INFO)
 
     if not logger.handlers:
@@ -60,7 +52,7 @@ def setup_logging() -> logging.Logger:
         # Добавим файловый обработчик
         if not os.path.exists ('logs'):
             os.makedirs ('logs')
-        file_handler = logging.FileHandler ('logs/codebasegpt.log')
+        file_handler = logging.FileHandler ('logs/promptfusion.log')
         file_handler.setFormatter (formatter)
         logger.addHandler (file_handler)
 

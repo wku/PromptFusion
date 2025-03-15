@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CodebaseGPT: инструмент для взаимодействия с кодовыми базами через LLM
+PromptFusion: инструмент для взаимодействия с кодовыми базами через LLM
 
 Основной модуль, который служит точкой входа в приложение.
 Координирует ключевые этапы работы:
@@ -32,7 +32,7 @@ def main():
 
     # Настраиваем логирование
     logger = setup_logging ()
-    logger.info ("Запуск CodebaseGPT")
+    logger.info ("Запуск PromptFusion")
 
     try:
         # Инициализируем состояние приложения
@@ -70,7 +70,7 @@ def main():
         print (f"\nОшибка: {e}")
         logger.exception ("Неожиданная ошибка:")
     finally:
-        print ("\nЗавершение работы CodebaseGPT")
+        print ("\nЗавершение работы PromptFusion")
 
 
 if __name__ == "__main__":
