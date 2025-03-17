@@ -24,7 +24,7 @@ from utils import (
     get_proj_stat, print_proj_stat, load_proj_state, save_proj_state,
     get_tokens_cnt, limit_string, remove_comments, trim_code, get_cost,
     bytes_to_str, add_path_prefix, remove_path_prefix, load_file_content,
-    find_files_semantic, find_in_files
+    find_files_semantic, find_in_files, edit_list
 )
 from analyzers import ProjectAnalyzer, CodeAnalyzer
 
@@ -47,67 +47,121 @@ def initialize_project(app_state: AppState) -> bool:
     Returns:
         bool: True если инициализация успешна, False если прервана пользователем
     """
-    ensure_data_folders ()
+    ensure_data_folders()
 
     # Определение проекта
     if app_state.app_config.proj_folder == '':
         # Новый проект
-        project_path = enter_project_path ()
-        is_new_project = set_current_project (app_state.app_config, project_path)
+        project_path = enter_project_path()
+        # Автоматическое обнаружение исключений
+        # should_auto_detect = input_yes_no (f'Автоматически определить файлы для исключения? [Y/n]: ')
+        # if is_yes (should_auto_detect) or is_default (should_auto_detect):
+        #     print ("\nАнализ структуры проекта для определения исключений...")
+        #     exclude_candidates = auto_detect_exclude_candidates (project_path)
+        #     app_state.app_config.default_excluded_dirs = exclude_candidates["excluded_dirs"]
+        #     app_state.app_config.default_excluded_file_types = exclude_candidates["excluded_file_types"]
+        #     app_state.app_config.default_excluded_file_names = exclude_candidates["excluded_file_names"]
+        #
+        #     # Показываем обнаруженные исключения
+        #     print ("\nОбнаружены следующие кандидаты для исключения:")
+        #     if exclude_candidates["excluded_dirs"]:
+        #         print ("\nДиректории:")
+        #         for dir_path in exclude_candidates["excluded_dirs"]:
+        #             print (f"  - {dir_path}")
+        #
+        #     if exclude_candidates["excluded_file_types"]:
+        #         print ("\nТипы файлов:")
+        #         for file_type in exclude_candidates["excluded_file_types"]:
+        #             print (f"  - {file_type}")
+        #
+        #     if exclude_candidates["excluded_file_names"]:
+        #         print ("\nИмена файлов:")
+        #         for file_name in exclude_candidates["excluded_file_names"]:
+        #             print (f"  - {file_name}")
+        #
+        #     # Даем возможность пользователю отредактировать списки
+        #     should_edit = input_yes_no (f'\nХотите отредактировать списки исключений? [y/N]: ')
+        #     if is_yes (should_edit):
+        #         app_state.app_config.default_excluded_dirs = edit_list (
+        #             "Директории для исключения (по одной на строку, пустая строка для завершения):",
+        #             app_state.app_config.default_excluded_dirs
+        #         )
+        #         app_state.app_config.default_excluded_file_types = edit_list (
+        #             "Типы файлов для исключения (по одному на строку, пустая строка для завершения):",
+        #             app_state.app_config.default_excluded_file_types
+        #         )
+        #         app_state.app_config.default_excluded_file_names = edit_list (
+        #             "Имена файлов для исключения (по одному на строку, пустая строка для завершения):",
+        #             app_state.app_config.default_excluded_file_names
+        #         )
+        #
+        #     # Сохраняем обновленные настройки
+        #     save_app_config (app_state.app_config)
+
+        is_new_project = set_current_project(app_state.app_config, project_path)
     else:
         # Проверка существующего проекта
-        print ()
-        proj_config = load_proj_config (app_state.app_config.proj_folder)
-        same_project = input_yes_no (f'Продолжить работу с проектом {proj_config.path}? [Y/n]: ')
-        if is_no (same_project):
-            project_path = enter_project_path ()
-            is_new_project = set_current_project (app_state.app_config, project_path)
+        print()
+        proj_config = load_proj_config(app_state.app_config.proj_folder)
+        same_project = input_yes_no(f'Продолжить работу с проектом {proj_config.path}? [Y/n]: ')
+        if is_no(same_project):
+            project_path = enter_project_path()
+            is_new_project = set_current_project(app_state.app_config, project_path)
         else:
             is_new_project = False
 
     # Загрузка конфигурации проекта
-    proj_config = load_proj_config (app_state.app_config.proj_folder)
+    proj_config = load_proj_config(app_state.app_config.proj_folder)
 
     # Проверка режима описания
-    if not is_valid_desc_mode (proj_config.desc_mode):
-        print (f'Ошибка: Неверное значение desc_mode: {proj_config.desc_mode}')
+    if not is_valid_desc_mode(proj_config.desc_mode):
+        print(f'Ошибка: Неверное значение desc_mode: {proj_config.desc_mode}')
         return False
 
     # Загрузка gitignore
-    gitignore = pathspec.PathSpec.from_lines ('gitwildmatch', [])
+    gitignore = pathspec.PathSpec.from_lines('gitwildmatch', [])
     if proj_config.gitignore:
-        gitignore = load_gitignore (proj_config.path)
+        gitignore = load_gitignore(proj_config.path)
 
     # Сканирование файлов проекта
-    files = list_project_files (proj_config.path, proj_config.include, proj_config.exclude, gitignore)
-    compute_sizes (proj_config.path, files, proj_config.remove_comments)
+    files = list_project_files(
+        proj_config.path,
+        proj_config.include,
+        proj_config.exclude,
+        gitignore,
+        excluded_dirs=proj_config.excluded_dirs,
+        excluded_file_types=proj_config.excluded_file_types,
+        excluded_file_names=proj_config.excluded_file_names
+    )
+    compute_sizes(proj_config.path, files, proj_config.remove_comments)
 
-    print ('\nФайлы, которые будут включены:')
-    print_file_tree (files)
+    print('\nФайлы, которые будут включены:')
+    print_file_tree(files)
 
     # Вывод статистики проекта
-    project_stat = get_proj_stat (files)
-    print ()
-    print_proj_stat (project_stat)
+    project_stat = get_proj_stat(files)
+    print()
+    print_proj_stat(project_stat)
 
     # Проверка размера проекта и предупреждения
-    check_project_warnings (project_stat)
+    check_project_warnings(project_stat)
 
     # Подтверждение продолжения
-    cont_next = input_yes_no ('\nПродолжить с этими настройками проекта? [Y/n]: ')
-    if is_no (cont_next):
+    cont_next = input_yes_no('\nПродолжить с этими настройками проекта? [Y/n]: ')
+    if is_no(cont_next):
         if is_new_project:
-            print (f'\nРедактируйте файл конфигурации проекта и перезапустите приложение.')
+            print(f'\nРедактируйте файл конфигурации проекта и перезапустите приложение.')
         else:
-            print (f'\nРедактируйте конфигурацию и перезапустите приложение.')
+            print(f'\nРедактируйте конфигурацию и перезапустите приложение.')
         return False
 
     # Записываем данные в состояние приложения
     app_state.proj_config = proj_config
-    app_state.file_paths = get_file_paths (files)
+    app_state.file_paths = get_file_paths(files)
     app_state.proj_stat = project_stat
 
     return True
+
 
 
 def check_project_warnings(project_stat) -> None:
@@ -154,35 +208,40 @@ def set_current_project(app_config: AppConfig, project_path: str) -> bool:
         bool: True если создан новый проект, False если использован существующий
     """
     # Проверяем, существует ли уже проект с таким путем
-    existing_proj_folder = find_project_folder (DATA_ROOT, project_path)
+    existing_proj_folder = find_project_folder(DATA_ROOT, project_path)
     if existing_proj_folder is None:
         # Создаем новый проект
-        proj_name = os.path.basename (project_path)
-        proj_folder = find_available_proj_folder (DATA_ROOT, proj_name)
+        proj_name = os.path.basename(project_path)
+        proj_folder = find_available_proj_folder(DATA_ROOT, proj_name)
 
         # Создаем новую конфигурацию проекта
-        proj_config = ProjConfig ()
+        proj_config = ProjConfig()
         proj_config.path = project_path
         proj_config.include = app_config.default_project_include
         proj_config.exclude = app_config.default_project_exclude
         proj_config.gitignore = app_config.default_project_gitignore
         proj_config.remove_comments = app_config.default_project_remove_comments
         proj_config.desc_mode = app_config.default_project_desc_mode
+        proj_config.excluded_dirs = app_config.default_excluded_dirs
+        proj_config.excluded_file_types = app_config.default_excluded_file_types
+        proj_config.excluded_file_names = app_config.default_excluded_file_names
 
         # Создаем папку для данных проекта и сохраняем конфигурацию
-        ensure_data_folders (proj_folder)
-        save_proj_config (proj_config, proj_folder)
+        ensure_data_folders(proj_folder)
+        save_proj_config(proj_config, proj_folder)
 
         # Обновляем конфигурацию приложения
         app_config.proj_folder = proj_folder
-        save_app_config (app_config)
+        save_app_config(app_config)
 
         return True
     else:
         # Используем существующий проект
         app_config.proj_folder = existing_proj_folder
-        save_app_config (app_config)
+        save_app_config(app_config)
         return False
+
+
 
 
 def find_project_folder(data_folder_path: str, project_path_to_find: str) -> Optional[str]:
@@ -643,7 +702,7 @@ def get_user_input(session: ChatSession) -> str:
     """
     while True:
         print ()
-        user_input = input ('👤 Вы: ').strip ()
+        user_input = input ('👤 Вы.: ').strip ()
 
         # Проверяем команды
         if user_input.lower () == '/exit':
@@ -653,6 +712,7 @@ def get_user_input(session: ChatSession) -> str:
             session.messages = []
             print ("\nИстория сообщений очищена")
             continue
+
 
         return user_input
 

@@ -26,6 +26,72 @@ _FileState = None
 _ProjState = None
 
 
+def auto_detect_exclude_candidates(base_path: str) -> Dict[str, List[str]]:
+    """
+    Автоматически определяет директории и типы файлов, которые стоит исключить
+
+    Args:
+        base_path: базовый путь проекта
+
+    Returns:
+        словарь с рекомендуемыми списками исключений
+    """
+    result = {
+        "excluded_dirs": [],
+        "excluded_file_types": [],
+        "excluded_file_names": []
+    }
+
+    # Поиск больших директорий
+    large_dirs = []
+    binary_file_types = set ()
+    common_binary_files = set ()
+
+    for root, dirs, files in os.walk (base_path):
+        # Пропускаем скрытые директории
+        dirs[:] = [d for d in dirs if not d.startswith ('.')]
+
+        rel_path = os.path.relpath (root, base_path)
+        if rel_path == '.':
+            rel_path = ''
+
+        # Проверяем известные директории
+        for known_dir in ["node_modules", "dist", "build", "venv", ".venv", "__pycache__", ".git"]:
+            if known_dir in dirs:
+                dir_path = os.path.join (rel_path, known_dir) if rel_path else known_dir
+                large_dirs.append (dir_path)
+                dirs.remove (known_dir)  # Пропускаем эту директорию
+
+        # Ищем бинарные файлы
+        for file in files:
+            if not is_text_file (os.path.join (root, file)):
+                ext = file.split ('.')[-1] if '.' in file else ''
+                if ext:
+                    binary_file_types.add (ext)
+
+                # Проверяем известные бинарные файлы
+                for known_file in ["yarn.lock", "package-lock.json", ".DS_Store", "Thumbs.db"]:
+                    if file == known_file:
+                        common_binary_files.add (known_file)
+
+    # Добавляем найденные директории и типы файлов
+    for dir_path in large_dirs:
+        normalized_path = dir_path.replace ('\\', '/') + '/'
+        if normalized_path not in result["excluded_dirs"]:
+            result["excluded_dirs"].append (normalized_path)
+
+    for file_type in binary_file_types:
+        if file_type not in result["excluded_file_types"]:
+            result["excluded_file_types"].append (file_type)
+
+    for file_name in common_binary_files:
+        if file_name not in result["excluded_file_names"]:
+            result["excluded_file_names"].append (file_name)
+
+    return result
+
+
+
 def _lazy_import_models():
     """Ленивая загрузка моделей для избежания циклических импортов"""
     global _FileNode, _ProjStat, _FileState, _ProjState
@@ -173,6 +239,80 @@ def is_text_by_enc(file_path: str) -> bool:
         return False
 
 
+class FileFilter:
+    """
+    Класс для работы с фильтрацией файлов проекта
+    """
+
+    def __init__(self,
+                 excluded_dirs: List[str] = None,
+                 excluded_file_types: List[str] = None,
+                 excluded_file_names: List[str] = None):
+        """
+        Инициализирует фильтр файлов
+
+        Args:
+            excluded_dirs: список исключаемых директорий
+            excluded_file_types: список исключаемых типов файлов
+            excluded_file_names: список исключаемых имен файлов
+        """
+        self.excluded_dirs = set (excluded_dirs or [])
+        self.excluded_file_types = set (excluded_file_types or [])
+        self.excluded_file_names = set (excluded_file_names or [])
+
+    def should_exclude_dir(self, path: str) -> bool:
+        """
+        Проверяет, должна ли директория быть исключена
+
+        Args:
+            path: относительный путь к директории
+
+        Returns:
+            True, если директория должна быть исключена
+        """
+        # Нормализуем путь для проверки
+        normalized_path = path.replace ('\\', '/')
+        if not normalized_path.endswith ('/'):
+            normalized_path += '/'
+
+        # Проверяем, содержится ли исключаемая директория в пути
+        for excluded in self.excluded_dirs:
+            excluded_norm = excluded.replace ('\\', '/')
+            # Проверяем как начало пути, так и наличие в середине пути
+            if normalized_path.startswith (excluded_norm) or ('/' + excluded_norm) in normalized_path:
+                return True
+        return False
+
+    def should_exclude_file(self, path: str) -> bool:
+        """
+        Проверяет, должен ли файл быть исключен
+
+        Args:
+            path: относительный путь к файлу
+
+        Returns:
+            True, если файл должен быть исключен
+        """
+        filename = os.path.basename (path)
+
+        # Проверяем имя файла
+        if filename in self.excluded_file_names:
+            return True
+
+        # Проверяем расширение файла
+        file_ext = filename.split ('.')[-1] if '.' in filename else ''
+        if file_ext in self.excluded_file_types:
+            return True
+
+        # Проверяем путь к файлу
+        for excluded in self.excluded_dirs:
+            if path.startswith (excluded) or path.replace ('\\', '/').startswith (excluded):
+                return True
+
+        return False
+
+
+
 # Утилиты для работы с кодом
 def remove_comments(file_name: str, file_content: str) -> str:
     """Удаляет комментарии из кода в зависимости от типа файла"""
@@ -281,7 +421,14 @@ model_pricing = [
         'output_cost': 0.0,  # Embedding не генерирует выходные токены
         'image_cost': None,
         'request_cost': None
-    }
+    },
+    {
+        'model': 'minimax/minimax-01',
+        'input_cost': 0.0002,  # $0.2/M = $0.00005/токен
+        'output_cost': 0.0011,  # $1.1/M = $0.0002/токен
+        'image_cost': None,
+        'request_cost': None
+    },
 ]
 
 def get_cost(model: str, in_tokens: int, out_tokens: int, image_size_kb: int = 0) -> float:
@@ -318,22 +465,73 @@ def get_cost(model: str, in_tokens: int, out_tokens: int, image_size_kb: int = 0
     return cost
 
 
+
 # Утилиты для списка файлов проекта
-def list_project_files(folder_path: str, include: List[str], exclude: List[str], gitignore: pathspec.PathSpec) -> List:
-    """Перечисляет файлы проекта согласно фильтрам"""
+def list_project_files(folder_path: str, include: List[str], exclude: List[str], gitignore: pathspec.PathSpec,
+                       excluded_dirs: List[str] = None,
+                       excluded_file_types: List[str] = None,
+                       excluded_file_names: List[str] = None) -> List:
+    """
+    Перечисляет файлы проекта согласно фильтрам
+
+    Args:
+        folder_path: путь к папке проекта
+        include: шаблоны включения
+        exclude: шаблоны исключения
+        gitignore: спецификация .gitignore
+        excluded_dirs: список исключаемых директорий
+        excluded_file_types: список исключаемых типов файлов
+        excluded_file_names: список исключаемых имен файлов
+
+    Returns:
+        Дерево файлов проекта
+    """
     _lazy_import_models ()
-    files = build_file_tree (folder_path, folder_path, gitignore, include, exclude).folder_content
+
+    # Создаем фильтр файлов
+    file_filter = FileFilter (
+        excluded_dirs=excluded_dirs,
+        excluded_file_types=excluded_file_types,
+        excluded_file_names=excluded_file_names
+    )
+
+    files = build_file_tree (
+        folder_path,
+        folder_path,
+        gitignore,
+        include,
+        exclude,
+        file_filter
+    ).folder_content
+
     files = remove_empty_folders (files)
     files = sort_file_data_alphabetically (files)
     return files
 
 
 def build_file_tree(root_directory: str, directory: str, gitignore_spec: pathspec.PathSpec,
-                    include_patterns: List[str], exclude_patterns: List[str]):
-    """Строит дерево файлов проекта с учетом фильтров"""
+                    include_patterns: List[str], exclude_patterns: List[str], file_filter: FileFilter = None):
+    """
+    Строит дерево файлов проекта с учетом фильтров
+
+    Args:
+        root_directory: корневая директория проекта
+        directory: текущая директория
+        gitignore_spec: спецификация .gitignore
+        include_patterns: шаблоны включения
+        exclude_patterns: шаблоны исключения
+        file_filter: фильтр файлов
+
+    Returns:
+        Узел дерева файлов
+    """
     _lazy_import_models ()
     entries = os.listdir (directory)
     folder_content = []
+
+    # Создаем фильтр файлов, если он не передан
+    if file_filter is None:
+        file_filter = FileFilter ()
 
     for entry in entries:
         full_path = os.path.join (directory, entry)
@@ -343,10 +541,26 @@ def build_file_tree(root_directory: str, directory: str, gitignore_spec: pathspe
         if gitignore_spec.match_file (relative_path):
             continue
 
+        # Проверяем исключение директории
         if os.path.isdir (full_path):
-            folder_node = build_file_tree (root_directory, full_path, gitignore_spec, include_patterns, exclude_patterns)
+            # Проверяем исключение директории
+            if file_filter.should_exclude_dir (relative_path):
+                continue
+
+            folder_node = build_file_tree (
+                root_directory,
+                full_path,
+                gitignore_spec,
+                include_patterns,
+                exclude_patterns,
+                file_filter
+            )
             folder_content.append (folder_node)
         else:
+            # Проверяем файл по всем фильтрам
+            if file_filter.should_exclude_file (relative_path):
+                continue
+
             match_include = any (glob_match (relative_path, pattern) for pattern in include_patterns)
             match_exclude = any (glob_match (relative_path, pattern) for pattern in exclude_patterns)
             if not match_include or match_exclude:
@@ -640,6 +854,48 @@ def line_matches(line: str, query: str, is_case_sensitive: bool) -> bool:
         return query in line
     else:
         return query.lower () in line.lower ()
+
+
+def edit_list(prompt: str, initial_list: List[str]) -> List[str]:
+    """
+    Позволяет пользователю отредактировать список элементов
+
+    Args:
+        prompt: приглашение для ввода
+        initial_list: исходный список
+
+    Returns:
+        отредактированный список
+    """
+    print (f"\n{prompt}")
+    if initial_list:
+        print ("Текущие значения:")
+        for i, item in enumerate (initial_list, 1):
+            print (f"{i}. {item}")
+
+    items = initial_list.copy ()
+    print ("\nВведите значения (пустая строка для завершения, '-номер' для удаления элемента):")
+
+    while True:
+        value = input ("> ").strip ()
+        if not value:
+            break
+
+        if value.startswith ('-'):
+            try:
+                index = int (value[1:]) - 1
+                if 0 <= index < len (items):
+                    removed = items.pop (index)
+                    print (f"Удалено: {removed}")
+                else:
+                    print ("Недопустимый индекс")
+            except ValueError:
+                print ("Некорректный формат. Используйте '-номер' для удаления.")
+        else:
+            items.append (value)
+
+    return items
+
 
 
 

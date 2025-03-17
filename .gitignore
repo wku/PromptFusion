@@ -60,3 +60,4 @@ htmlcov/
 .pytest_cache/
 _data
 logs
+temp

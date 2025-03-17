@@ -11,6 +11,8 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from dotenv import load_dotenv
+from dataclasses import dataclass, field
+from typing import List, Optional, Any, Dict, Set
 
 load_dotenv ()
 
@@ -23,31 +25,94 @@ MODE_DESC = "desc"  # Стандартный режим с подробными 
 MODE_DESC_NO = "desc_no"  # Без описаний
 MODE_DESC_2 = "desc_2"  # Сокращенные описания
 
+# Списки исключений по умолчанию
+DEFAULT_EXCLUDED_DIRS = [
+    "node_modules/",
+    "dist/",
+    "build/",
+    ".git/",
+    "__pycache__/",
+    ".venv/",
+    "venv/",
+    "src/fonts/",
+    "src/img/",
+    "src/locales/"
+]
 
-class AppConfig (BaseModel):
-    """Конфигурация приложения"""
-    proj_folder: str = Field ('', description="Текущая папка проекта")
-    description_model: str = Field ('openai/gpt-4o-mini', description="Модель для создания описаний файлов")
-    embedding_model_path: str = Field ('sentence-transformers/all-MiniLM-L6-v2', description="Модель для создания эмбеддингов")
-    chat_model: str = Field ('openai/gpt-4o-mini', description="Модель для чата с кодом")
-    base_url: str = Field ("https://openrouter.ai/api/v1", description="URL API LLM")
-    api_key: str = Field ("", description="API ключ (будет заменен переменной окружения OPENROUTER_API_KEY)")
-    default_project_include: List[str] = Field (['**/*'], description="Шаблоны глоб для включения файлов по умолчанию")
-    default_project_exclude: List[str] = Field ([], description="Шаблоны глоб для исключения файлов по умолчанию")
-    default_project_gitignore: bool = Field (True, description="Учитывать ли .gitignore по умолчанию")
-    default_project_remove_comments: bool = Field (False, description="Удалять ли комментарии из кода по умолчанию")
-    default_project_desc_mode: str = Field (MODE_DESC, description="Режим описания файлов по умолчанию")
-    verbose_log: bool = Field (False, description="Подробное логирование")
+DEFAULT_EXCLUDED_FILE_TYPES = [
+    "woff", "woff2", "eot", "ttf", "otf",  # шрифты
+    "svg", "png", "jpg", "jpeg", "gif", "ico",  # изображения
+    "po", "mo",  # файлы локализации
+    "lock",  # lock-файлы пакетных менеджеров
+    "map",  # map-файлы для отладки
+    "pyc", "pyo", "pyd"  # байт-код Python
+]
+
+DEFAULT_EXCLUDED_FILE_NAMES = [
+    "yarn.lock",
+    "package-lock.json",
+    "messages.po",
+    ".DS_Store",
+    "Thumbs.db"
+]
 
 
-class ProjConfig (BaseModel):
+@dataclass
+class FilterConfig:
+    """Конфигурация фильтрации файлов проекта"""
+    excluded_dirs: List[str] = field (default_factory=list)
+    excluded_file_types: List[str] = field (default_factory=list)
+    excluded_file_names: List[str] = field (default_factory=list)
+
+    def to_dict(self) -> Dict[str, List[str]]:
+        """Конвертирует конфигурацию в словарь для сериализации"""
+        return {
+            "excluded_dirs": self.excluded_dirs,
+            "excluded_file_types": self.excluded_file_types,
+            "excluded_file_names": self.excluded_file_names
+        }
+
+    @staticmethod
+    def from_dict(data: Dict[str, List[str]]) -> 'FilterConfig':
+        """Создает конфигурацию из словаря"""
+        return FilterConfig (
+            excluded_dirs=data.get ("excluded_dirs", []),
+            excluded_file_types=data.get ("excluded_file_types", []),
+            excluded_file_names=data.get ("excluded_file_names", [])
+        )
+
+
+
+class AppConfig(BaseModel):
+    """Конфигурация приложения openai/gpt-4o-mini minimax/minimax-01"""
+    proj_folder: str = Field('', description="Текущая папка проекта")
+    description_model: str = Field('openai/gpt-4o-mini', description="Модель для создания описаний файлов")
+    embedding_model_path: str = Field('sentence-transformers/all-MiniLM-L6-v2', description="Модель для создания эмбеддингов")
+    chat_model: str = Field('minimax/minimax-01', description="Модель для чата с кодом")
+    base_url: str = Field("https://openrouter.ai/api/v1", description="URL API LLM")
+    api_key: str = Field("", description="API ключ (будет заменен переменной окружения OPENROUTER_API_KEY)")
+    default_project_include: List[str] = Field(['**/*'], description="Шаблоны глоб для включения файлов по умолчанию")
+    default_project_exclude: List[str] = Field([], description="Шаблоны глоб для исключения файлов по умолчанию")
+    default_project_gitignore: bool = Field(True, description="Учитывать ли .gitignore по умолчанию")
+    default_project_remove_comments: bool = Field(False, description="Удалять ли комментарии из кода по умолчанию")
+    default_project_desc_mode: str = Field(MODE_DESC, description="Режим описания файлов по умолчанию")
+    default_excluded_dirs: List[str] = Field(DEFAULT_EXCLUDED_DIRS, description="Директории, исключаемые по умолчанию")
+    default_excluded_file_types: List[str] = Field(DEFAULT_EXCLUDED_FILE_TYPES, description="Типы файлов, исключаемые по умолчанию")
+    default_excluded_file_names: List[str] = Field(DEFAULT_EXCLUDED_FILE_NAMES, description="Имена файлов, исключаемые по умолчанию")
+    verbose_log: bool = Field(False, description="Подробное логирование")
+
+
+class ProjConfig(BaseModel):
     """Конфигурация проекта"""
-    path: str = Field ('', description="Абсолютный путь к папке проекта")
-    include: List[str] = Field (['**/*'], description="Шаблоны глоб для включения файлов")
-    exclude: List[str] = Field ([], description="Шаблоны глоб для исключения файлов")
-    gitignore: bool = Field (True, description="Учитывать ли .gitignore")
-    remove_comments: bool = Field (False, description="Удалять ли комментарии из кода")
-    desc_mode: str = Field (MODE_DESC, description="Режим описания файлов")
+    path: str = Field('', description="Абсолютный путь к папке проекта")
+    include: List[str] = Field(['**/*'], description="Шаблоны глоб для включения файлов")
+    exclude: List[str] = Field([], description="Шаблоны глоб для исключения файлов")
+    gitignore: bool = Field(True, description="Учитывать ли .gitignore")
+    remove_comments: bool = Field(False, description="Удалять ли комментарии из кода")
+    desc_mode: str = Field(MODE_DESC, description="Режим описания файлов")
+    excluded_dirs: List[str] = Field([], description="Директории, исключаемые из анализа")
+    excluded_file_types: List[str] = Field([], description="Типы файлов, исключаемые из анализа")
+    excluded_file_names: List[str] = Field([], description="Имена файлов, исключаемые из анализа")
 
 
 def get_app_config_path() -> str:
